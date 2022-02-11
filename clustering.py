@@ -30,16 +30,23 @@ def update_b(qis, qib, qib_other, pbb, qic, n_iter, no_psb, no_pbb, no_pbc, wind
 
     return pb, psb, qib, pbc
 
-def update_b_pair(qis1, qib1, qis2, qib2, qic1, qic2, n_iter, no_psb, no_pbb, no_pbc, window, scale):
+def update_b_single(qis1, qib1, qic1, n_iter, no_psb, no_pbc, window, scale):
     
     for _ in range(n_iter):
-        
+        pb1, psb1, qib1, pbc1 = update_b(qis1, qib1, {}, {}, qic1, n_iter, no_psb, True, no_pbc, window, scale)
+
+    return pb1, psb1, qib1, pbc1
+
+
+def update_b_pair(qis1, qib1, qis2, qib2, qic1, qic2, n_iter, no_psb, no_pbb, no_pbc, window, scale):
+    for _ in range(n_iter):
         pbb = T.einsum('axy,bxy->ab', qib1, qib2)
-        
+
         pb1, psb1, qib1, pbc1 = update_b(qis1, qib1, qib2, pbb, qic1, n_iter, no_psb, no_pbb, no_pbc, window, scale)
         pb2, psb2, qib2, pbc2 = update_b(qis2, qib2, qib1, pbb.t(), qic2, n_iter, no_psb, no_pbb, no_pbc, window, scale)
-       
+
     return pb1, psb1, qib1, pb2, psb2, qib2, pbc1, pbc2
+
 
 def update_s(data, qis, pcs, qic, psb, qib, n_iter, no_pcs, renorm, window, scale):
     
