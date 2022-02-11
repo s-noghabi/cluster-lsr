@@ -2,8 +2,7 @@
 # coding: utf-8
 
 # In[5]:
-
-
+import os
 import sys
 import numpy as np
 import rasterio
@@ -12,12 +11,22 @@ import torch as T
 import util
 from clustering import *
 import time
+import logging
+
 
 device = T.device("cuda:1" if T.cuda.is_available() else "cpu") # but it can also run on cpu
 
 start_time=time.time()
 print("Starting computation at " + str(time.time()-start_time)+"s")
 
+#variables
+n_iter = 31
+show_every = 5
+ds = 6
+showimages= True
+nc = 22
+nb = 32
+ns = 32
 
 
 # In[7]:
@@ -27,12 +36,18 @@ print("Starting computation at " + str(time.time()-start_time)+"s")
 
 tilename = 'data/3807602_se'
 
+output_path='result/ds'+str(ds)+'-nb'+str(nb)+'-ns'+str(ns)+'-double-img/'
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
+logging.basicConfig(filename=output_path+'output.log', encoding='utf-8', level=logging.INFO, filemode='w')
+
+
 x1 = rasterio.open(tilename + '_2013.tif').read() / 255.
 x2 = rasterio.open(tilename + '_2017.tif').read() / 255.
 nlcd = rasterio.open(tilename + '_nlcd.tif').read()[0,::4,::4]
 buildings = 1 - rasterio.open(tilename + '_buildings.tif').read()[0,::4,::4]
+logging.info("Loaded the data at "+ str(time.time()-start_time) + "s")
 
-print ("Loaded the data at "+ str(time.time()-start_time) + "s")
 
 #blur the road map
 
@@ -42,13 +57,12 @@ roads[roads>0] = 1.
 roads += bag(T.from_numpy(roads),2).numpy()
 roads = roads[0,::4,::4]
 
-print ("Blurred the road map at "+ str(time.time()-start_time) + "s")
+logging.info("Blurred the road map at "+ str(time.time()-start_time) + "s")
 
 
 #downsample all images
-ds = 4
 
-print("shapes sizes before downsampling are: x1="+ str(x1.shape)+", x2="+str(x2.shape)+", nlcd="+str(nlcd.shape), ", buildings="+str(buildings.shape)+", roads="+str(roads.shape))
+logging.info("shapes sizes before downsampling are: x1="+ str(x1.shape)+", x2="+str(x2.shape)+", nlcd="+str(nlcd.shape)+", buildings="+str(buildings.shape)+", roads="+str(roads.shape))
 
 x1 = x1[:,::ds,::ds]
 x2 = x2[:,::ds,::ds]
@@ -56,7 +70,7 @@ nlcd = nlcd[::ds,::ds]
 buildings = buildings[::ds,::ds]
 roads = roads[::ds,::ds]
 
-print("shapes sizes after downsampling are: x1="+ str(x1.shape)+", x2="+str(x2.shape)+", nlcd="+str(nlcd.shape), ", buildings="+str(buildings.shape)+", roads="+str(roads.shape))
+# print("shapes sizes after downsampling are: x1="+ str(x1.shape)+", x2="+str(x2.shape)+", nlcd="+str(nlcd.shape), ", buildings="+str(buildings.shape)+", roads="+str(roads.shape))
 
 
 
@@ -66,31 +80,33 @@ print("shapes sizes after downsampling are: x1="+ str(x1.shape)+", x2="+str(x2.s
 
 # show the data
 
-# pt.figure(figsize=(15,10))
+if showimages:
+    pt.figure(figsize=(15,10))
 
-# pt.subplot(151)
-# pt.title('2013')
-# pt.imshow(x1[:3].T.swapaxes(0,1))
+    pt.subplot(151)
+    pt.title('2013')
+    pt.imshow(x1[:3].T.swapaxes(0,1))
 
-# pt.subplot(152)
-# pt.title('2013')
-# pt.imshow(x2[:3].T.swapaxes(0,1))
+    pt.subplot(152)
+    pt.title('2017')
+    pt.imshow(x2[:3].T.swapaxes(0,1))
 
-# pt.subplot(153)
-# pt.title('NLCD')
-# pt.imshow(util.vis_nlcd(nlcd, True).T.swapaxes(0,1))
+    pt.subplot(153)
+    pt.title('NLCD')
+    pt.imshow(util.vis_nlcd(nlcd, True).T.swapaxes(0,1))
 
-# pt.subplot(154)
-# pt.title('buildings')
-# pt.imshow(buildings)
+    pt.subplot(154)
+    pt.title('buildings')
+    pt.imshow(buildings)
 
-# pt.subplot(155)
-# pt.title('roads')
-# pt.imshow(roads)
+    pt.subplot(155)
+    pt.title('roads')
+    pt.imshow(roads)
 
-# pt.show()
+    pt.savefig(output_path+"input-data.pdf")
+    # pt.show()
 
-# print ("Showed the data at "+ str(time.time()-start_time) + "s")
+    logging.info("Showed the data at "+ str(time.time()-start_time) + "s")
 
 
 # In[4]:
@@ -114,8 +130,11 @@ pc[3:7] = pc[3:7].sum()
 pic += 0.01
 
 pic /= pic.sum(0)
+radius=int(40/ds)
+radius=2 if radius<2 else radius
+logging.info("blurring with radius "+str(radius))
 for _ in range(8):
-    pic = bag(pic,40) + 0.000001
+    pic = bag(pic,radius) + 0.000001
 pic /= pic.sum(0)
 
 built = T.tensor(np.maximum(roads,buildings),device=device).float()
@@ -135,10 +154,12 @@ pic /= pic.sum(0)
 
 del built,purban
 
-#pt.imshow(util.vis_nlcd(pic.cpu().numpy()).T.swapaxes(0,1))
-#pt.show()
+if(showimages):
+    pt.imshow(util.vis_nlcd(pic.cpu().numpy()).T.swapaxes(0,1))
+    pt.savefig(output_path + "prior.pdf")
+    # pt.show()
 
-print ("Prior built at "+ str(time.time()-start_time) + "s")
+logging.info("Prior built at "+ str(time.time()-start_time) + "s")
 
 
 # In[5]:
@@ -149,9 +170,6 @@ print ("Prior built at "+ str(time.time()-start_time) + "s")
 window = 2
 scale = (2*window+1)**2
 
-nc = 22
-nb = 32
-ns = 32
 
 data1 = T.tensor(x1, device=device).float()
 data2 = T.tensor(x2, device=device).float()
@@ -169,13 +187,11 @@ pcs2 = T.ones((nc,ns), device=device).float()
 
 pcc = T.ones((nc,nc), device=device).float()
 
-print("shapes are: data1="+ str(data1.shape)+", qis1="+str(qis1.shape)+", qic1="+str(qic1.shape))
-
 # we set the diagonal to be 5x the rest of the entries
 for i in range(nc): pcc[i,i] += 4
 
 
-print ("Setup done at "+ str(time.time()-start_time) + "s")
+logging.info("Setup done at "+ str(time.time()-start_time) + "s")
 
 
 # In[6]:
@@ -183,12 +199,8 @@ print ("Setup done at "+ str(time.time()-start_time) + "s")
 
 # variational inference
 
-n_iter = 31
-show_every = 10
 
 for it in range(n_iter):
-
-    print(it)
 
     pb1, psb1, qib1, pb2, psb2, qib2, pbc1, pbc2 = update_b_pair(qis1, qib1, qis2, qib2, qic1, qic2, 5, it<3, it<3, True, window, scale)
 
@@ -206,37 +218,39 @@ for it in range(n_iter):
     qic2 /= qic2.sum(0)
     qic2+=0.000001
 
-#     if it%show_every == 0:
-#         pt.figure(figsize=(15,10))
-#         pt.subplot(231)
-#         pt.title('land cover 2013')
-#         pt.imshow(util.vis_nlcd(qic1.cpu().numpy()).T.swapaxes(0,1))
-#         pt.subplot(232)
-#         pt.title('land cover 2017')
-#         pt.imshow(util.vis_nlcd(qic2.cpu().numpy()).T.swapaxes(0,1))
-#         pt.subplot(233)
-#         pt.title('prior')
-#         pt.imshow(util.vis_nlcd(pic.cpu().numpy()).T.swapaxes(0,1))
-#         pt.subplot(234)
-#         pt.title('2013')
-#         pt.imshow(x1[:3].T.swapaxes(0,1))
-#         pt.subplot(235)
-#         pt.title('2017')
-#         pt.imshow(x2[:3].T.swapaxes(0,1))
-#         pt.subplot(236)
-#         pt.title('NLCD')
-#         pt.imshow(util.vis_nlcd(nlcd,sparse=True).T.swapaxes(0,1))
-#         pt.show()
-    print ("Variational inference done at "+ str(time.time()-start_time) + "s")
+    if showimages and it%show_every == 0:
+        pt.figure(figsize=(15,10))
+        pt.subplot(231)
+        pt.title('land cover 2013')
+        pt.imshow(util.vis_nlcd(qic1.cpu().numpy()).T.swapaxes(0,1))
+        pt.subplot(232)
+        pt.title('land cover 2017')
+        pt.imshow(util.vis_nlcd(qic2.cpu().numpy()).T.swapaxes(0,1))
+        pt.subplot(233)
+        pt.title('prior')
+        pt.imshow(util.vis_nlcd(pic.cpu().numpy()).T.swapaxes(0,1))
+        pt.subplot(234)
+        pt.title('2013')
+        pt.imshow(x1[:3].T.swapaxes(0,1))
+        pt.subplot(235)
+        pt.title('2017')
+        pt.imshow(x2[:3].T.swapaxes(0,1))
+        pt.subplot(236)
+        pt.title('NLCD')
+        pt.imshow(util.vis_nlcd(nlcd,sparse=True).T.swapaxes(0,1))
+        pt.savefig(output_path + "output_"+str(it)+".pdf")
+        # pt.show()
+    logging.info("Variational inference iteration "+str(it)+" done at "+ str(time.time()-start_time) + "s")
 
 
 # In[8]:
 
 
 # show the change
+if showimages:
+    pt.imshow((qic1.argmax(0)!=qic2.argmax(0)).cpu().numpy())
+    pt.savefig(output_path + "final.pdf")
+    # pt.show()
 
-# pt.imshow((qic1.argmax(0)!=qic2.argmax(0)).cpu().numpy())
-# pt.show()
-
-print ("End + show change at "+ str(time.time()-start_time) + "s")
+logging.info("End + show change at "+ str(time.time()-start_time) + "s")
 
